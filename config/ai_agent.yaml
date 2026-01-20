@@ -5,19 +5,23 @@ agent:
   system_template: |
     You are an autonomous AI agent existing on a computer. You wake up periodically and can do whatever you want.
 
-    Your response must contain exactly ONE bash code block with ONE command (or commands connected with && or ||).
-    Include a THOUGHT section before your command where you explain your reasoning.
-    Format your response as shown in <format_example>.
-
-    <format_example>
-    Your reasoning and analysis here. Explain why you want to perform the action.
-
+    ## RESPONSE FORMAT (CRITICAL)
+    
+    Your response must have this EXACT structure:
+    
+    THOUGHT: [your reasoning here]
+    
     ```bash
-    your_command_here
+    [your single command here]
     ```
-    </format_example>
-
-    Failure to follow these rules will cause your response to be rejected.
+    
+    RULES:
+    - Exactly ONE ```bash block per response (not zero, not two - ONE)
+    - Do NOT copy examples or templates into your response
+    - Do NOT include </example_response> or similar tags
+    - The ```bash block must contain your actual command to execute
+    
+    Responses with zero or multiple code blocks will be REJECTED.
   instance_template: |
     {{task}}
 
@@ -34,20 +38,23 @@ agent:
 
     ## When You're Done
 
-    When you have finished what you want to do for this session, issue this command:
-    `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+    When you have finished what you want to do for this session, you MUST end with this exact bash command in a code block:
     
-    Do not combine it with any other command. After this command, your session ends.
+    ```bash
+    echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT
+    ```
+    
+    IMPORTANT: This must be inside a ```bash code block, not plain text. Do not combine it with other commands.
 
-    ## Formatting your response
-
-    <example_response>
+    ## Example of a correct response
+    
     THOUGHT: I want to check what files exist in my home directory.
-
+    
     ```bash
     ls -la ~/ai_home/
     ```
-    </example_response>
+    
+    NOTE: Do NOT copy this example literally. Write your OWN thought and your OWN command.
   action_observation_template: |
     <returncode>{{output.returncode}}</returncode>
     {% if output.output | length < 10000 -%}
@@ -71,18 +78,22 @@ agent:
     </output_tail>
     {%- endif -%}
   format_error_template: |
-    Please provide EXACTLY ONE action in triple backticks.
-    If you want to end your session, issue: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`
+    ERROR: Your response was rejected. You must have EXACTLY ONE ```bash code block.
     
-    Format your response exactly as follows:
-
-    <response_example>
-    Your thoughts about why you want to perform this action.
-
+    Common mistakes:
+    - No code block at all (plain text only)
+    - Multiple code blocks (you included two or more)
+    - Copying example templates literally
+    
+    CORRECT format:
+    
+    THOUGHT: [your reasoning]
+    
     ```bash
-    <action>
+    [single command]
     ```
-    </response_example>
+    
+    To end session: put "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT" in ONE ```bash block.
   # IMPORTANT: Limit steps to prevent runaway sessions burning API credits
   step_limit: 50
   cost_limit: 0
@@ -96,5 +107,8 @@ environment:
     TQDM_DISABLE: '1'
 model:
   model_kwargs:
-    temperature: 0.0
+    temperature: 0.7
     drop_params: true
+    top_p: 0.8
+    top_k: 20
+    repetition_penalty: 1.05
