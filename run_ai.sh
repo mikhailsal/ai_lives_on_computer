@@ -175,6 +175,14 @@ inject_randomness() {
 #############################################
 
 check_token_validity() {
+    # Check token based on which method we're using
+    local method="${1:-live-swe-agent}"
+    
+    if [ "$method" = "openrouter" ]; then
+        check_openrouter_token_validity
+        return $?
+    fi
+    
     # Quick token check using Qwen API
     local token_file="$HOME/.qwen/oauth_creds.json"
     local env_file="$HOME/.config/mini-swe-agent/.env"
@@ -206,6 +214,44 @@ check_token_validity() {
         return 0
     else
         echo "[$TIMESTAMP] TOKEN ERROR: API returned HTTP $http_code" >> "$LOG_DIR/runner.log"
+        return 1
+    fi
+}
+
+check_openrouter_token_validity() {
+    # Check OpenRouter API key validity
+    local env_file="$HOME/.config/mini-swe-agent/.env.openrouter"
+    
+    local token=""
+    if [ -f "$env_file" ]; then
+        token=$(grep "^OPENAI_API_KEY=" "$env_file" | cut -d= -f2)
+    fi
+    
+    if [ -z "$token" ]; then
+        echo "[$TIMESTAMP] OPENROUTER TOKEN ERROR: No API key found in $env_file" >> "$LOG_DIR/runner.log"
+        echo "[$TIMESTAMP] Please create $env_file with your OpenRouter API key" >> "$LOG_DIR/runner.log"
+        return 1
+    fi
+    
+    # Test token with minimal API call to OpenRouter
+    local model="${OPENROUTER_MODEL:-meta-llama/llama-3.3-70b-instruct}"
+    local response=$(curl -s -w "\n%{http_code}" -m 15 -X POST "https://openrouter.ai/api/v1/chat/completions" \
+        -H "Authorization: Bearer $token" \
+        -H "Content-Type: application/json" \
+        -H "HTTP-Referer: https://github.com/ai-lives-on-computer" \
+        -H "X-Title: AI-Lives-On-Computer" \
+        -d "{\"model\": \"$model\", \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}], \"max_tokens\": 1}" 2>/dev/null)
+    
+    local http_code=$(echo "$response" | tail -1)
+    
+    if [ "$http_code" = "200" ]; then
+        rm -f "$TOKEN_ERROR_FILE"
+        echo "[$TIMESTAMP] OpenRouter token valid (model: $model)" >> "$LOG_DIR/runner.log"
+        return 0
+    else
+        echo "[$TIMESTAMP] OPENROUTER TOKEN ERROR: API returned HTTP $http_code" >> "$LOG_DIR/runner.log"
+        local body=$(echo "$response" | head -n -1)
+        echo "[$TIMESTAMP] Response: $body" >> "$LOG_DIR/runner.log"
         return 1
     fi
 }
@@ -276,9 +322,16 @@ NEXT_SESSION=$((CURRENT_SESSION + 1))
 
 echo "[$TIMESTAMP] Starting AI session #$NEXT_SESSION..." >> "$LOG_DIR/runner.log"
 
+# Get method early so we can check the right token
+METHOD="${1:-live-swe-agent}"
+
 # IMPORTANT: Check token validity BEFORE checking repetition
 # This prevents circuit breaker spam when the real issue is an expired token
-if ! check_token_validity; then
+if ! check_token_validity "$METHOD"; then
+    if [ "$METHOD" = "openrouter" ]; then
+        echo "[$TIMESTAMP] OpenRouter token invalid. Please check ~/.config/mini-swe-agent/.env.openrouter" >> "$LOG_DIR/runner.log"
+        exit 1
+    fi
     handle_token_error
     # If we get here, token was refreshed successfully
 fi
@@ -350,6 +403,62 @@ run_with_live_swe_agent() {
     }
 }
 
+run_with_openrouter() {
+    # OpenRouter method - supports many models via unified API
+    # Model can be configured in config.sh via OPENROUTER_MODEL variable
+    
+    cd ~/live-swe-agent
+    source venv/bin/activate
+    
+    # mini-swe-agent always reads from ~/.config/mini-swe-agent/.env
+    # We need to temporarily swap it with the OpenRouter config
+    local main_env="$HOME/.config/mini-swe-agent/.env"
+    local openrouter_env="$HOME/.config/mini-swe-agent/.env.openrouter"
+    local backup_env="$HOME/.config/mini-swe-agent/.env.qwen.backup"
+    
+    if [ ! -f "$openrouter_env" ]; then
+        echo "[$TIMESTAMP] ERROR: OpenRouter config not found at $openrouter_env" >> "$LOG_DIR/runner.log"
+        echo "[$TIMESTAMP] Run ~/setup-openrouter.sh to configure OpenRouter" >> "$LOG_DIR/runner.log"
+        return 1
+    fi
+    
+    # Backup the current .env (Qwen config) and swap in OpenRouter config
+    if [ -f "$main_env" ]; then
+        cp "$main_env" "$backup_env"
+    fi
+    cp "$openrouter_env" "$main_env"
+    
+    # Ensure cleanup happens even if the command fails
+    cleanup_env() {
+        if [ -f "$backup_env" ]; then
+            cp "$backup_env" "$main_env"
+        fi
+    }
+    trap cleanup_env RETURN
+    
+    PROMPT=$(build_prompt)
+    
+    # Get model from config, default to a capable free/cheap model
+    local model="${OPENROUTER_MODEL:-meta-llama/llama-3.3-70b-instruct}"
+    
+    echo "[$TIMESTAMP] Using OpenRouter model: $model" >> "$LOG_DIR/runner.log"
+    
+    # Use custom config with step limit - OpenRouter uses openai/ prefix
+    timeout "${SESSION_TIMEOUT_SECONDS}s" mini --config config/ai_agent_openrouter.yaml \
+         --model "openai/${model}" \
+         --task "$PROMPT" \
+         --yolo \
+         --cost-limit 0 \
+         --exit-immediately \
+         2>&1 || {
+        local exit_code=$?
+        if [ $exit_code -eq 124 ]; then
+            echo "[$TIMESTAMP] ERROR: Session timed out after ${SESSION_TIMEOUT_SECONDS}s" >> "$LOG_DIR/runner.log"
+        fi
+        return $exit_code
+    }
+}
+
 run_with_qwen_cli() {
     PROMPT=$(build_prompt)
     timeout "${SESSION_TIMEOUT_SECONDS}s" qwen -p "$PROMPT" 2>&1 || {
@@ -386,7 +495,7 @@ run_with_direct_api() {
 # EXECUTION
 #############################################
 
-METHOD="${1:-live-swe-agent}"
+# METHOD already set above for token validation
 
 echo "[$TIMESTAMP] Running with method: $METHOD (timeout: ${SESSION_TIMEOUT_SECONDS}s)" >> "$LOG_DIR/runner.log"
 
@@ -397,12 +506,15 @@ case "$METHOD" in
     "live-swe-agent")
         run_with_live_swe_agent | tee -a "$LOG_DIR/session_$TIMESTAMP.log"
         ;;
+    "openrouter")
+        run_with_openrouter | tee -a "$LOG_DIR/session_$TIMESTAMP.log"
+        ;;
     "api")
         run_with_direct_api | tee -a "$LOG_DIR/session_$TIMESTAMP.log"
         ;;
     *)
         echo "Unknown method: $METHOD"
-        echo "Usage: $0 [qwen|live-swe-agent|api]"
+        echo "Usage: $0 [qwen|live-swe-agent|openrouter|api]"
         exit 1
         ;;
 esac

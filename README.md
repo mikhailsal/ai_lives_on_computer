@@ -48,18 +48,46 @@ ai_lives_on_computer/
 
 ## Deployment
 
-### Initial Setup
+The deploy script **respects agent modifications** by default. ARIA can modify its own `SYSTEM_PROMPT.md`, `config.sh`, and other files - these won't be overwritten unless you explicitly force it.
+
+### Safe Deployment (Default)
 
 ```bash
-# Deploy everything to server
+# Deploy new/safe files only - respects agent's modifications
 ./deploy.sh
 
-# Or deploy with fresh state (new session 1)
-./deploy.sh --reset
+# Check server status without deploying anything
+./deploy.sh --status
 
-# Or deploy only config (keep agent's work)
-./deploy.sh --config
+# Deploy only OpenRouter support files (safe, recommended for upgrades)
+./deploy.sh --openrouter
 ```
+
+### Dangerous Operations (Use with Caution!)
+
+```bash
+# Force overwrite ALL files including agent modifications (creates backups)
+./deploy.sh --force
+
+# Full reset - destroys all agent state and memories (session 1)
+./deploy.sh --reset
+```
+
+### Files Protected by Default
+
+| File | Location | Why Protected |
+|------|----------|---------------|
+| `SYSTEM_PROMPT.md` | `~/ai_home/` | Agent can modify its own instructions |
+| `config.sh` | `~/ai_home/` | Agent may add custom configuration |
+| `run_ai.sh` | `~/` | Agent could modify the runner |
+
+### Files Always Safe to Update
+
+| File | Location | Why Safe |
+|------|----------|----------|
+| `ai_agent*.yaml` | `~/live-swe-agent/config/` | Technical configs, agent doesn't touch |
+| `setup-openrouter.sh` | `~/` | New utility script |
+| `sync-qwen-token.sh` | `~/` | Utility script |
 
 ### Set Up Cron
 
@@ -103,6 +131,9 @@ SESSION_INTERVAL_MINUTES=5
 
 # Max session duration (seconds)
 SESSION_TIMEOUT_SECONDS=1800  # 30 minutes
+
+# OpenRouter model (when using openrouter method)
+OPENROUTER_MODEL="meta-llama/llama-3.3-70b-instruct:free"
 ```
 
 ### `config/ai_agent.yaml`
@@ -112,6 +143,49 @@ agent:
   step_limit: 50    # Max actions per session (prevents runaway)
   cost_limit: 0     # No cost limit (free API)
 ```
+
+## Switching Models (Qwen ↔ OpenRouter)
+
+The agent can run with different AI models. Currently supported:
+
+### Option 1: Qwen (Default)
+Free via qwen-cli OAuth. Good for basic tasks.
+
+```bash
+./run_ai.sh live-swe-agent
+```
+
+### Option 2: OpenRouter (Recommended for upgrades)
+Access to 400+ models via unified API. Many free options available.
+
+**Setup:**
+```bash
+# 1. Get API key from https://openrouter.ai/keys
+# 2. Run setup script
+./setup-openrouter.sh YOUR_API_KEY
+
+# 3. Configure model in ai_home/config.sh
+echo 'OPENROUTER_MODEL="meta-llama/llama-3.3-70b-instruct:free"' >> ai_home/config.sh
+
+# 4. Run with OpenRouter
+./run_ai.sh openrouter
+```
+
+**Popular Free Models:**
+| Model | Size | Notes |
+|-------|------|-------|
+| `meta-llama/llama-3.3-70b-instruct:free` | 70B | Very capable, recommended |
+| `qwen/qwen-2.5-72b-instruct:free` | 72B | Strong reasoning |
+| `google/gemma-2-9b-it:free` | 9B | Fast, good quality |
+| `mistralai/mistral-7b-instruct:free` | 7B | Very fast |
+| `deepseek/deepseek-r1:free` | - | Advanced reasoning |
+
+**Update cron for OpenRouter:**
+```bash
+*/15 * * * * ~/run_ai.sh openrouter >> ~/ai_home/logs/cron.log 2>&1
+```
+
+See all models: https://openrouter.ai/models
 
 ## Safety Features
 
@@ -125,11 +199,11 @@ agent:
 If the agent breaks something:
 
 ```bash
-# Restore from local copies
-./deploy.sh --reset
+# Force redeploy config files (creates backups of agent modifications)
+./deploy.sh --force
 
-# Or just redeploy config
-./deploy.sh --config
+# Full reset - start fresh from session 1 (DESTROYS all agent work!)
+./deploy.sh --reset
 ```
 
 ## What Will It Do?
