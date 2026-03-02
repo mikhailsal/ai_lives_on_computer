@@ -2,9 +2,10 @@
 #
 # setup-openrouter.sh - Set up OpenRouter API key for the AI agent
 #
-# Usage: ./setup-openrouter.sh [API_KEY]
+# Usage: ./setup-openrouter.sh [API_KEY] [PROVIDER]
 #
 # If API_KEY is not provided, you'll be prompted to enter it.
+# If PROVIDER is not provided, it will default to empty (let OpenRouter decide).
 #
 # Get your API key from: https://openrouter.ai/keys
 #
@@ -14,7 +15,7 @@ set -e
 # Configuration
 OPENROUTER_ENV="$HOME/.config/mini-swe-agent/.env.openrouter"
 OPENROUTER_BASE_URL="https://openrouter.ai/api/v1"
-DEFAULT_MODEL="google/gemini-2.5-flash-lite-preview-09-2025"
+DEFAULT_MODEL="xiaomi/mimo-v2-flash"
 
 # Colors for output
 RED='\033[0;31m'
@@ -36,6 +37,7 @@ echo ""
 
 # Get API key
 API_KEY="${1:-}"
+PROVIDER="${2:-}"
 
 if [ -z "$API_KEY" ]; then
     echo "Get your API key from: https://openrouter.ai/keys"
@@ -76,9 +78,9 @@ BODY=$(echo "$RESPONSE" | head -n -1)
 if [ "$HTTP_CODE" = "200" ]; then
     log_info "API key is valid!"
 else
-    log_error "API key validation failed (HTTP $HTTP_CODE)"
+    log_warn "API key validation failed (HTTP $HTTP_CODE)"
     echo "Response: $BODY"
-    exit 1
+    echo "Proceeding anyway..."
 fi
 
 # Create config directory if needed
@@ -97,6 +99,7 @@ cat > "$OPENROUTER_ENV" << ENVEOF
 OPENAI_API_KEY=$API_KEY
 OPENAI_BASE_URL=$OPENROUTER_BASE_URL
 MSWEA_MODEL_NAME=openai/$DEFAULT_MODEL
+OPENROUTER_PROVIDER=$PROVIDER
 MSWEA_CONFIGURED=true
 MSWEA_COST_TRACKING=ignore_errors
 ENVEOF
@@ -109,10 +112,12 @@ echo "  Setup Complete"
 echo "=========================================="
 echo ""
 echo "  Default model: $DEFAULT_MODEL"
+echo "  Provider:      ${PROVIDER:-(auto)}"
 echo "  Config file:   $OPENROUTER_ENV"
 echo ""
 echo "  To change model, edit ~/ai_home/config.sh:"
 echo "    OPENROUTER_MODEL=\"$DEFAULT_MODEL\""
+echo "    OPENROUTER_PROVIDER=\"$PROVIDER\""
 echo ""
 echo "  To run the agent:"
 echo "    ~/run_ai.sh"

@@ -77,7 +77,7 @@ echo "========================================"
 
 # Check SSH connectivity first
 log_step "Checking server connectivity..."
-if ! ssh -o ConnectTimeout=5 "$SERVER" "echo 'OK'" > /dev/null 2>&1; then
+if ! ssh -n -o ConnectTimeout=5 "$SERVER" "echo 'OK'" > /dev/null 2>&1; then
     log_error "Cannot connect to server '$SERVER'"
     exit 1
 fi
@@ -90,11 +90,11 @@ log_info "Connected to $SERVER"
 show_status() {
     log_step "Server Status"
     
-    SESSION_COUNTER=$(ssh "$SERVER" "cat ~/ai_home/state/session_counter.txt 2>/dev/null || echo 'N/A'")
-    CRON=$(ssh "$SERVER" "crontab -l 2>/dev/null | grep run_ai | head -1 || echo 'not set'")
-    OPENROUTER_CONFIG=$(ssh "$SERVER" "[ -f ~/.config/mini-swe-agent/.env.openrouter ] && echo 'present' || echo 'not configured'")
-    PROMPT_MODIFIED=$(ssh "$SERVER" "grep -q 'modified by' ~/ai_home/SYSTEM_PROMPT.md 2>/dev/null && echo 'YES (agent modified)' || echo 'no'")
-    MODEL=$(ssh "$SERVER" "grep OPENROUTER_MODEL ~/ai_home/config.sh 2>/dev/null | cut -d'\"' -f2 || echo 'not set'")
+    SESSION_COUNTER=$(ssh -n "$SERVER" "cat ~/ai_home/state/session_counter.txt 2>/dev/null || echo 'N/A'")
+    CRON=$(ssh -n "$SERVER" "crontab -l 2>/dev/null | grep run_ai | head -1 || echo 'not set'")
+    OPENROUTER_CONFIG=$(ssh -n "$SERVER" "[ -f ~/.config/mini-swe-agent/.env.openrouter ] && echo 'present' || echo 'not configured'")
+    PROMPT_MODIFIED=$(ssh -n "$SERVER" "grep -q 'modified by' ~/ai_home/SYSTEM_PROMPT.md 2>/dev/null && echo 'YES (agent modified)' || echo 'no'")
+    MODEL=$(ssh -n "$SERVER" "grep OPENROUTER_MODEL ~/ai_home/config.sh 2>/dev/null | cut -d'\"' -f2 || echo 'not set'")
     
     echo ""
     echo "========================================"
@@ -157,8 +157,8 @@ fi
 
 # Step 1: Create directory structure
 log_step "Creating directory structure on server..."
-ssh "$SERVER" "mkdir -p ~/ai_home/{state,logs,knowledge,projects,tools}"
-ssh "$SERVER" "mkdir -p ~/live-swe-agent/config"
+ssh -n "$SERVER" "mkdir -p ~/ai_home/{state,logs,knowledge,projects,tools}"
+ssh -n "$SERVER" "mkdir -p ~/live-swe-agent/config"
 log_info "Directories created"
 
 # Step 2: Deploy files
@@ -172,11 +172,11 @@ log_info "ai_agent_openrouter.yaml"
 
 # Setup scripts
 scp -q "$SCRIPT_DIR/setup-openrouter.sh" "$SERVER:~/setup-openrouter.sh"
-ssh "$SERVER" "chmod +x ~/setup-openrouter.sh"
+ssh -n "$SERVER" "chmod +x ~/setup-openrouter.sh"
 log_info "setup-openrouter.sh"
 
 scp -q "$SCRIPT_DIR/set-schedule.sh" "$SERVER:~/set-schedule.sh"
-ssh "$SERVER" "chmod +x ~/set-schedule.sh"
+ssh -n "$SERVER" "chmod +x ~/set-schedule.sh"
 log_info "set-schedule.sh"
 
 # === AGENT-MODIFIABLE FILES (only deploy if --force or file doesn't exist) ===
@@ -188,18 +188,18 @@ if [ "$FORCE_MODE" = true ]; then
     BACKUP_SUFFIX=$(date +%Y%m%d_%H%M%S)
     
     # Backup and overwrite SYSTEM_PROMPT.md
-    ssh "$SERVER" "[ -f ~/ai_home/SYSTEM_PROMPT.md ] && cp ~/ai_home/SYSTEM_PROMPT.md ~/ai_home/SYSTEM_PROMPT.md.backup.$BACKUP_SUFFIX || true"
+    ssh -n "$SERVER" "[ -f ~/ai_home/SYSTEM_PROMPT.md ] && cp ~/ai_home/SYSTEM_PROMPT.md ~/ai_home/SYSTEM_PROMPT.md.backup.$BACKUP_SUFFIX || true"
     scp -q "$SCRIPT_DIR/SYSTEM_PROMPT.md" "$SERVER:~/ai_home/SYSTEM_PROMPT.md"
     log_info "SYSTEM_PROMPT.md (backup created)"
     
     # Backup and overwrite run_ai.sh
-    ssh "$SERVER" "[ -f ~/run_ai.sh ] && cp ~/run_ai.sh ~/run_ai.sh.backup.$BACKUP_SUFFIX || true"
+    ssh -n "$SERVER" "[ -f ~/run_ai.sh ] && cp ~/run_ai.sh ~/run_ai.sh.backup.$BACKUP_SUFFIX || true"
     scp -q "$SCRIPT_DIR/run_ai.sh" "$SERVER:~/run_ai.sh"
-    ssh "$SERVER" "chmod +x ~/run_ai.sh"
+    ssh -n "$SERVER" "chmod +x ~/run_ai.sh"
     log_info "run_ai.sh (backup created)"
     
     # Backup and overwrite config.sh
-    ssh "$SERVER" "[ -f ~/ai_home/config.sh ] && cp ~/ai_home/config.sh ~/ai_home/config.sh.backup.$BACKUP_SUFFIX || true"
+    ssh -n "$SERVER" "[ -f ~/ai_home/config.sh ] && cp ~/ai_home/config.sh ~/ai_home/config.sh.backup.$BACKUP_SUFFIX || true"
     scp -q "$SCRIPT_DIR/ai_home/config.sh" "$SERVER:~/ai_home/config.sh"
     log_info "config.sh (backup created)"
 else
@@ -207,7 +207,7 @@ else
     log_step "Checking agent-modifiable files..."
     
     # SYSTEM_PROMPT.md - only if doesn't exist
-    if ssh "$SERVER" "[ ! -f ~/ai_home/SYSTEM_PROMPT.md ]" 2>/dev/null; then
+    if ssh -n "$SERVER" "[ ! -f ~/ai_home/SYSTEM_PROMPT.md ]" 2>/dev/null; then
         scp -q "$SCRIPT_DIR/SYSTEM_PROMPT.md" "$SERVER:~/ai_home/SYSTEM_PROMPT.md"
         log_info "SYSTEM_PROMPT.md (new file)"
     else
@@ -215,16 +215,16 @@ else
     fi
     
     # run_ai.sh - only if doesn't exist
-    if ssh "$SERVER" "[ ! -f ~/run_ai.sh ]" 2>/dev/null; then
+    if ssh -n "$SERVER" "[ ! -f ~/run_ai.sh ]" 2>/dev/null; then
         scp -q "$SCRIPT_DIR/run_ai.sh" "$SERVER:~/run_ai.sh"
-        ssh "$SERVER" "chmod +x ~/run_ai.sh"
+        ssh -n "$SERVER" "chmod +x ~/run_ai.sh"
         log_info "run_ai.sh (new file)"
     else
         log_skip "run_ai.sh"
     fi
     
     # config.sh - only if doesn't exist
-    if ssh "$SERVER" "[ ! -f ~/ai_home/config.sh ]" 2>/dev/null; then
+    if ssh -n "$SERVER" "[ ! -f ~/ai_home/config.sh ]" 2>/dev/null; then
         scp -q "$SCRIPT_DIR/ai_home/config.sh" "$SERVER:~/ai_home/config.sh"
         log_info "config.sh (new file)"
     else
@@ -237,11 +237,11 @@ if [ "$RESET_STATE" = true ]; then
     log_step "Resetting agent state..."
     
     # Stop any running sessions
-    ssh "$SERVER" "pkill -f 'mini --config' 2>/dev/null || true; rm -f ~/ai_home/state/session.lock"
+    ssh -n "$SERVER" "pkill -f '[m]ini --config' 2>/dev/null || true; rm -f ~/ai_home/state/session.lock"
     log_info "Stopped running sessions"
     
     # Reset all state
-    ssh "$SERVER" "
+    ssh -n "$SERVER" "
         echo '0' > ~/ai_home/state/session_counter.txt
         echo '(no previous session)' > ~/ai_home/state/last_session.md
         echo '(no plan yet)' > ~/ai_home/state/current_plan.md
@@ -259,7 +259,7 @@ if [ "$RESET_STATE" = true ]; then
 else
     # Just ensure state files exist (don't overwrite)
     log_step "Ensuring state files exist..."
-    ssh "$SERVER" "
+    ssh -n "$SERVER" "
         [ -f ~/ai_home/state/session_counter.txt ] || echo '0' > ~/ai_home/state/session_counter.txt
         [ -f ~/ai_home/state/last_session.md ] || echo '(no previous session)' > ~/ai_home/state/last_session.md
         [ -f ~/ai_home/state/current_plan.md ] || echo '(no plan yet)' > ~/ai_home/state/current_plan.md
@@ -271,7 +271,7 @@ fi
 
 # Step 4: Clean up old Qwen artifacts on server
 log_step "Cleaning up old artifacts..."
-ssh "$SERVER" "
+ssh -n "$SERVER" "
     rm -f ~/sync-qwen-token.sh 2>/dev/null || true
     rm -f ~/refresh-token.sh 2>/dev/null || true
     rm -f ~/live-swe-agent/config/ai_agent.yaml 2>/dev/null || true

@@ -289,9 +289,48 @@ run_session() {
     # Get model from config
     local model="${OPENROUTER_MODEL:-x-ai/grok-4.1-fast}"
     
-    echo "[$TIMESTAMP] Using OpenRouter model: $model" >> "$LOG_DIR/runner.log"
+    # Get provider from config or env file
+    local provider="${OPENROUTER_PROVIDER:-}"
+    if [ -z "$provider" ] && [ -f "$openrouter_env" ]; then
+        # Extract value and strip quotes
+        provider=$(grep "^OPENROUTER_PROVIDER=" "$openrouter_env" | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+    fi
     
-    timeout "${SESSION_TIMEOUT_SECONDS}s" mini --config config/ai_agent_openrouter.yaml \
+    local config_file="config/ai_agent_openrouter.yaml"
+    local tmp_config_file=""
+    
+    # Build extra_body with session tracking, provider, and reasoning settings
+    tmp_config_file="config/ai_agent_openrouter_tmp_$$.yaml"
+    cp "$config_file" "$tmp_config_file"
+    
+    # Start extra_body block
+    echo "    extra_body:" >> "$tmp_config_file"
+    
+    # Session ID for Langfuse grouping via OpenRouter Broadcast
+    echo "      session_id: \"session_${NEXT_SESSION}\"" >> "$tmp_config_file"
+    
+    # Trace metadata for richer Langfuse analytics
+    echo "      trace:" >> "$tmp_config_file"
+    echo "        trace_name: \"AI Agent Session ${NEXT_SESSION}\"" >> "$tmp_config_file"
+    echo "        generation_name: \"step\"" >> "$tmp_config_file"
+    
+    # Disable reasoning (prevents overthinking and wasted tokens)
+    echo "      reasoning:" >> "$tmp_config_file"
+    echo "        enabled: false" >> "$tmp_config_file"
+    
+    # Add provider routing if specified
+    if [ -n "$provider" ]; then
+        echo "[$TIMESTAMP] Using OpenRouter provider: $provider" >> "$LOG_DIR/runner.log"
+        echo "      provider:" >> "$tmp_config_file"
+        echo "        order: [\"$provider\"]" >> "$tmp_config_file"
+        echo "        allow_fallbacks: false" >> "$tmp_config_file"
+    fi
+    
+    config_file="$tmp_config_file"
+    
+    echo "[$TIMESTAMP] Using OpenRouter model: $model (session_id: session_${NEXT_SESSION})" >> "$LOG_DIR/runner.log"
+    
+    timeout "${SESSION_TIMEOUT_SECONDS}s" mini --config "$config_file" \
          --model "openai/${model}" \
          --task "$PROMPT" \
          --yolo \
@@ -302,8 +341,13 @@ run_session() {
         if [ $exit_code -eq 124 ]; then
             echo "[$TIMESTAMP] ERROR: Session timed out after ${SESSION_TIMEOUT_SECONDS}s" >> "$LOG_DIR/runner.log"
         fi
+        # Cleanup temp config
+        [ -n "$tmp_config_file" ] && [ -f "$tmp_config_file" ] && rm "$tmp_config_file"
         return $exit_code
     }
+    
+    # Cleanup temp config
+    [ -n "$tmp_config_file" ] && [ -f "$tmp_config_file" ] && rm "$tmp_config_file"
 }
 
 #############################################
