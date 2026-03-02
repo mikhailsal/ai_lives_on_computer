@@ -1,10 +1,12 @@
 # Debian Server Setup - Complete Guide
 
+> **⚠️ DEPRECATED (March 2026):** The Qwen OAuth API approach described in this document **no longer works** for third-party tools. Qwen has restricted `portal.qwen.ai` to only accept requests from their official `qwen-cli` client. See [issue #1742](https://github.com/QwenLM/qwen-code/issues/1742). For future autonomous AI experiments, use **OpenRouter** with free models instead. The `qwen-cli` itself still works fine for interactive use.
+
 ## Overview
 This server has been configured with:
 - SSH key-based authentication (passwordless login)
 - qwen-cli (Qwen Code CLI) with OAuth authentication
-- live-SWE-agent (self-evolving SWE-bench agent) integrated with Qwen models
+- live-SWE-agent (self-evolving SWE-bench agent) — **Qwen integration deprecated, use OpenRouter**
 - Python virtual environments and necessary dependencies
 
 ---

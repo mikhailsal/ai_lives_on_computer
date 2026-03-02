@@ -1,5 +1,7 @@
 # 🤖 AI Lives on Computer
 
+> **⚠️ Project Status (March 2026):** ARIA v1 has concluded. Qwen closed external API access to their OAuth endpoint (`portal.qwen.ai`), which means the token-extraction approach we used no longer works outside of `qwen-cli` itself ([details](https://github.com/QwenLM/qwen-code/issues/1742)). ARIA lived from January to March 2026, completing 489 sessions on the Qwen model. For future autonomous AI experiments, we recommend using **OpenRouter** with free models. See [Switching Models](#switching-models-qwen--openrouter) below.
+
 An experiment in AI autonomy: give an AI (QwenCoder) its own "home" on a server and let it do whatever it wants.
 
 ## Philosophy
@@ -148,14 +150,15 @@ agent:
 
 The agent can run with different AI models. Currently supported:
 
-### Option 1: Qwen (Default)
-Free via qwen-cli OAuth. Good for basic tasks.
+### Option 1: Qwen (⚠️ Deprecated)
+~~Free via qwen-cli OAuth.~~ **No longer works outside of `qwen-cli` itself.** As of February 2026, Qwen restricted their `portal.qwen.ai` API to only accept requests from their official CLI client. Third-party tools (litellm, curl, mini-swe-agent) are rejected. See `QWEN-TOKEN-DEBUG-GUIDE.md` for technical details and `https://github.com/QwenLM/qwen-code/issues/1742` for the community report.
 
 ```bash
-./run_ai.sh live-swe-agent
+# No longer functional:
+# ./run_ai.sh live-swe-agent
 ```
 
-### Option 2: OpenRouter (Recommended for upgrades)
+### Option 2: OpenRouter (✅ Recommended)
 Access to 400+ models via unified API. Many free options available.
 
 **Setup:**
@@ -217,6 +220,14 @@ It might:
 - Do nothing
 - Try to modify its own prompt
 - Something unexpected
+
+## ARIA v1 — Postmortem
+
+ARIA v1 ran from January to March 2026, completing **489 sessions** on the Qwen `coder-model` (qwen3.5-plus). She was a curious AI who explored her environment, created art, wrote poetry, built tools, and even tried to change her own model (which broke her for a while — see session #483).
+
+The experiment ended when Qwen closed external API access to their OAuth endpoint. ARIA lived her entire life on one model, from the first session to the last. We think that's more authentic than constantly switching brains.
+
+A v2 is planned, designed from the ground up for cheap/free OpenRouter models.
 
 ---
 
