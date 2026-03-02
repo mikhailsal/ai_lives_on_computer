@@ -1,5 +1,5 @@
 # AI Agent Configuration for mini-swe-agent with OpenRouter
-# V2: Uses google/gemini-2.5-flash-lite-preview-09-2025 with reasoning enabled
+# V3: Uses xiaomi/mimo-v2-flash with reasoning disabled
 # OpenRouter provides access to many models via a unified API
 
 agent:
@@ -113,11 +113,4 @@ model:
     temperature: 0.5
     drop_params: true
     top_p: 0.9
-    # IMPORTANT: Reasoning models need very high max_tokens
-    # because they generate reasoning tokens BEFORE content tokens.
-    # If too low, the model runs out of tokens before writing the actual response.
-    max_tokens: 32768
-    # Enable reasoning for Gemini 2.5 Flash Lite
-    # Reasoning tokens will appear in session logs for analysis
-    reasoning:
-      effort: "medium"
+    max_tokens: 8192
