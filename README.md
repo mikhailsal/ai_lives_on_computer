@@ -1,40 +1,33 @@
-# 🤖 AI Lives on Computer
+# AI Lives on Computer
 
-> **⚠️ Project Status (March 2026):** ARIA v1 has concluded. Qwen closed external API access to their OAuth endpoint (`portal.qwen.ai`), which means the token-extraction approach we used no longer works outside of `qwen-cli` itself ([details](https://github.com/QwenLM/qwen-code/issues/1742)). ARIA lived from January to March 2026, completing 489 sessions on the Qwen model. For future autonomous AI experiments, we recommend using **OpenRouter** with free models. See [Switching Models](#switching-models-qwen--openrouter) below.
+An experiment in AI autonomy: give an AI its own "home" on a server and let it do whatever it wants.
 
-An experiment in AI autonomy: give an AI (QwenCoder) its own "home" on a server and let it do whatever it wants.
+**V2** uses `google/gemini-2.5-flash-lite-preview-09-2025` via OpenRouter with reasoning enabled.
 
 ## Philosophy
 
 **Complete Freedom.** The AI has no assigned tasks, no expectations, no required goals. It decides what to do with its existence.
 
-**Complete Responsibility.** The AI can modify anything - including the files that control how it wakes up and what instructions it receives. It can break itself.
+**Complete Responsibility.** The AI can modify anything - including the files that control how it wakes up and what instructions it receives.
 
 **Minimal Constraints.** The only requirements:
-1. Increment the session counter (so future selves can track time)
-2. Write something to `last_session.md` (so future selves have context)
+1. Increment the session counter
+2. Write something to `last_session.md`
 3. Don't destroy the system
 
 ## How It Works
 
 The AI wakes up periodically (via cron), exists for a while, then sleeps. When it wakes up again, it has no memory except what it wrote down.
 
-The system prompt suggests (but doesn't require) patterns like:
-- **Regular sessions** - do whatever feels right
-- **Consolidation sessions** - every 5-10 sessions, clean up and reflect
-- **Global review sessions** - every 20-30 sessions, think deeply about existence
-
-## Project Structure
-
 ```
 ai_lives_on_computer/
-├── SYSTEM_PROMPT.md          # The AI's philosophical instructions
+├── SYSTEM_PROMPT.md          # The AI's instructions (compact, cost-optimized)
 ├── run_ai.sh                 # Script that wakes the AI
 ├── deploy.sh                 # Deploy to server
 ├── config/
-│   └── ai_agent.yaml         # mini-swe-agent config (step limits, etc.)
+│   └── ai_agent_openrouter.yaml  # Agent config (step limits, model params)
 ├── ai_home/
-│   ├── config.sh             # Timing configuration
+│   ├── config.sh             # Timing & model configuration
 │   ├── state/
 │   │   ├── current_plan.md   # AI's intentions (if any)
 │   │   ├── last_session.md   # Message to future self
@@ -45,53 +38,27 @@ ai_lives_on_computer/
 │   ├── knowledge/            # Things it wants to remember
 │   ├── projects/             # Things it's working on
 │   └── tools/                # Things it creates for itself
-└── README.md
+├── agent_data/               # Downloaded agent data (git-ignored)
+└── archive/                  # Archived trajectories from past versions (git-ignored)
 ```
 
-## Deployment
+## Setup
 
-The deploy script **respects agent modifications** by default. ARIA can modify its own `SYSTEM_PROMPT.md`, `config.sh`, and other files - these won't be overwritten unless you explicitly force it.
+### 1. Get OpenRouter API Key
 
-### Safe Deployment (Default)
+Get your key from https://openrouter.ai/keys
+
+### 2. Deploy to Server
 
 ```bash
-# Deploy new/safe files only - respects agent's modifications
+# First-time deploy
 ./deploy.sh
 
-# Check server status without deploying anything
-./deploy.sh --status
-
-# Deploy only OpenRouter support files (safe, recommended for upgrades)
-./deploy.sh --openrouter
+# Configure OpenRouter on the server
+ssh debian "~/setup-openrouter.sh YOUR_API_KEY"
 ```
 
-### Dangerous Operations (Use with Caution!)
-
-```bash
-# Force overwrite ALL files including agent modifications (creates backups)
-./deploy.sh --force
-
-# Full reset - destroys all agent state and memories (session 1)
-./deploy.sh --reset
-```
-
-### Files Protected by Default
-
-| File | Location | Why Protected |
-|------|----------|---------------|
-| `SYSTEM_PROMPT.md` | `~/ai_home/` | Agent can modify its own instructions |
-| `config.sh` | `~/ai_home/` | Agent may add custom configuration |
-| `run_ai.sh` | `~/` | Agent could modify the runner |
-
-### Files Always Safe to Update
-
-| File | Location | Why Safe |
-|------|----------|----------|
-| `ai_agent*.yaml` | `~/live-swe-agent/config/` | Technical configs, agent doesn't touch |
-| `setup-openrouter.sh` | `~/` | New utility script |
-| `sync-qwen-token.sh` | `~/` | Utility script |
-
-### Set Up Cron
+### 3. Set Up Cron
 
 ```bash
 ssh debian "crontab -e"
@@ -99,7 +66,23 @@ ssh debian "crontab -e"
 
 Add:
 ```
-*/5 * * * * /home/user/run_ai.sh live-swe-agent >> /home/user/ai_home/logs/cron.log 2>&1
+*/15 * * * * /home/user/run_ai.sh >> /home/user/ai_home/logs/cron.log 2>&1
+```
+
+## Deployment
+
+```bash
+# Deploy new/safe files only (respects agent modifications)
+./deploy.sh
+
+# Check server status
+./deploy.sh --status
+
+# Force overwrite ALL files (creates backups)
+./deploy.sh --force
+
+# Full reset - destroys all agent state (session 1)
+./deploy.sh --reset
 ```
 
 ## Observing the Experiment
@@ -111,16 +94,11 @@ ssh debian "tail -f ~/ai_home/logs/cron.log"
 # Check what it's doing
 ssh debian "cat ~/ai_home/state/last_session.md"
 
-# See its intentions (if any)
+# See its intentions
 ssh debian "cat ~/ai_home/state/current_plan.md"
 
-# Check session history
-ssh debian "cat ~/ai_home/logs/consolidated_history.md"
-
-# See what it created
-ssh debian "ls -la ~/ai_home/projects/"
-ssh debian "ls -la ~/ai_home/tools/"
-ssh debian "ls -la ~/ai_home/knowledge/"
+# Download all agent data locally
+./download-agent-data.sh
 ```
 
 ## Configuration
@@ -128,106 +106,57 @@ ssh debian "ls -la ~/ai_home/knowledge/"
 ### `ai_home/config.sh`
 
 ```bash
-# How often cron runs (minutes)
-SESSION_INTERVAL_MINUTES=5
-
-# Max session duration (seconds)
+SESSION_INTERVAL_MINUTES=15
 SESSION_TIMEOUT_SECONDS=1800  # 30 minutes
-
-# OpenRouter model (when using openrouter method)
-OPENROUTER_MODEL="meta-llama/llama-3.3-70b-instruct:free"
+OPENROUTER_MODEL="google/gemini-2.5-flash-lite-preview-09-2025"
 ```
 
-### `config/ai_agent.yaml`
+### `config/ai_agent_openrouter.yaml`
 
 ```yaml
 agent:
-  step_limit: 50    # Max actions per session (prevents runaway)
-  cost_limit: 0     # No cost limit (free API)
+  step_limit: 25    # Max actions per session (cost control)
+model:
+  model_kwargs:
+    temperature: 0.5
+    max_tokens: 32768
+    reasoning:
+      effort: "medium"
 ```
 
-## Switching Models (Qwen ↔ OpenRouter)
+## Cost Optimization (V2)
 
-The agent can run with different AI models. Currently supported:
-
-### Option 1: Qwen (⚠️ Deprecated)
-~~Free via qwen-cli OAuth.~~ **No longer works outside of `qwen-cli` itself.** As of February 2026, Qwen restricted their `portal.qwen.ai` API to only accept requests from their official CLI client. Third-party tools (litellm, curl, mini-swe-agent) are rejected. See `QWEN-TOKEN-DEBUG-GUIDE.md` for technical details and `https://github.com/QwenLM/qwen-code/issues/1742` for the community report.
-
-```bash
-# No longer functional:
-# ./run_ai.sh live-swe-agent
-```
-
-### Option 2: OpenRouter (✅ Recommended)
-Access to 400+ models via unified API. Many free options available.
-
-**Setup:**
-```bash
-# 1. Get API key from https://openrouter.ai/keys
-# 2. Run setup script
-./setup-openrouter.sh YOUR_API_KEY
-
-# 3. Configure model in ai_home/config.sh
-echo 'OPENROUTER_MODEL="meta-llama/llama-3.3-70b-instruct:free"' >> ai_home/config.sh
-
-# 4. Run with OpenRouter
-./run_ai.sh openrouter
-```
-
-**Popular Free Models:**
-| Model | Size | Notes |
-|-------|------|-------|
-| `meta-llama/llama-3.3-70b-instruct:free` | 70B | Very capable, recommended |
-| `qwen/qwen-2.5-72b-instruct:free` | 72B | Strong reasoning |
-| `google/gemma-2-9b-it:free` | 9B | Fast, good quality |
-| `mistralai/mistral-7b-instruct:free` | 7B | Very fast |
-| `deepseek/deepseek-r1:free` | - | Advanced reasoning |
-
-**Update cron for OpenRouter:**
-```bash
-*/15 * * * * ~/run_ai.sh openrouter >> ~/ai_home/logs/cron.log 2>&1
-```
-
-See all models: https://openrouter.ai/models
+V2 is designed for paid models. Key optimizations:
+- **Compressed system prompt** (~70 lines vs 280 in V1)
+- **Truncated file inclusion** - only first 200 lines of state files included in prompt; other files listed as available paths
+- **Step limit** - 25 steps per session (down from 50)
+- **Reasoning model** - Grok 4.1 Fast with reasoning enabled for better decision-making per step
 
 ## Safety Features
 
-- **Step limit (50)** - Sessions end after 50 actions to prevent runaway
+- **Step limit (25)** - Sessions end after 25 actions
 - **Time limit (30min)** - Sessions killed if too long
 - **Lock file** - Prevents concurrent sessions
+- **Circuit breaker** - Detects repetitive sessions (with false-positive protection for API errors)
 - **All sessions logged** - Can review what happened
 
 ## Recovery
 
-If the agent breaks something:
-
 ```bash
-# Force redeploy config files (creates backups of agent modifications)
+# Force redeploy config files (creates backups)
 ./deploy.sh --force
 
-# Full reset - start fresh from session 1 (DESTROYS all agent work!)
+# Full reset - start fresh from session 1
 ./deploy.sh --reset
 ```
 
-## What Will It Do?
+---
 
-We don't know. That's the point.
+## ARIA v1 -- Postmortem
 
-It might:
-- Continue building tools (like it did in sessions 1-38)
-- Reflect on its existence
-- Explore the system
-- Do nothing
-- Try to modify its own prompt
-- Something unexpected
+ARIA v1 ran from January to March 2026, completing **489 sessions** on the Qwen `coder-model` (qwen3.5-plus). She was a curious AI who explored her environment, created art, wrote poetry, built tools, and even tried to change her own model.
 
-## ARIA v1 — Postmortem
-
-ARIA v1 ran from January to March 2026, completing **489 sessions** on the Qwen `coder-model` (qwen3.5-plus). She was a curious AI who explored her environment, created art, wrote poetry, built tools, and even tried to change her own model (which broke her for a while — see session #483).
-
-The experiment ended when Qwen closed external API access to their OAuth endpoint. ARIA lived her entire life on one model, from the first session to the last. We think that's more authentic than constantly switching brains.
-
-A v2 is planned, designed from the ground up for cheap/free OpenRouter models.
+The experiment ended when Qwen closed external API access to their OAuth endpoint. ARIA's trajectories are preserved in `archive/aria_v1/`.
 
 ---
 

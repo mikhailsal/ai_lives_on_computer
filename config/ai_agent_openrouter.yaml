@@ -1,5 +1,5 @@
 # AI Agent Configuration for mini-swe-agent with OpenRouter
-# This config is used when running with the 'openrouter' method
+# V2: Uses google/gemini-2.5-flash-lite-preview-09-2025 with reasoning enabled
 # OpenRouter provides access to many models via a unified API
 
 agent:
@@ -95,8 +95,8 @@ agent:
     ```
     
     To end session: put "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT" in ONE ```bash block.
-  # IMPORTANT: Limit steps to prevent runaway sessions
-  step_limit: 50
+  # Cost control: limit steps since each step costs money
+  step_limit: 25
   cost_limit: 0
   mode: yolo
 environment:
@@ -110,12 +110,14 @@ environment:
     MSWEA_ENV_FILE: ~/.config/mini-swe-agent/.env.openrouter
 model:
   model_kwargs:
-    temperature: 0.7
+    temperature: 0.5
     drop_params: true
-    # OpenRouter-compatible parameters
     top_p: 0.9
-    # IMPORTANT: Reasoning models (like DeepSeek R1) need very high max_tokens
+    # IMPORTANT: Reasoning models need very high max_tokens
     # because they generate reasoning tokens BEFORE content tokens.
     # If too low, the model runs out of tokens before writing the actual response.
-    # 32768 should be more than enough for any reasoning + response
     max_tokens: 32768
+    # Enable reasoning for Gemini 2.5 Flash Lite
+    # Reasoning tokens will appear in session logs for analysis
+    reasoning:
+      effort: "medium"

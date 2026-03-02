@@ -1,1 +1,6 @@
 tmp/**
+archive/**
+agent_data/**
+.cursor/**
+.env*
+habr_article/**
