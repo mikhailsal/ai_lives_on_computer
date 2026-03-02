@@ -13,4 +13,4 @@ SESSION_INTERVAL_MINUTES=15
 SESSION_TIMEOUT_SECONDS=1800  # 30 minutes
 
 # OpenRouter model
-OPENROUTER_MODEL="google/gemini-2.5-flash-lite-preview-09-2025"
+OPENROUTER_MODEL="anthropic/claude-haiku-4.5"

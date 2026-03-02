@@ -307,7 +307,7 @@ run_session() {
     PROMPT=$(build_prompt)
     
     # Get model from config
-    local model="${OPENROUTER_MODEL:-x-ai/grok-4.1-fast}"
+    local model="${OPENROUTER_MODEL:-anthropic/claude-haiku-4.5}"
     
     # Get provider from config or env file
     local provider="${OPENROUTER_PROVIDER:-}"
@@ -422,7 +422,7 @@ fi
 # EXECUTION
 #############################################
 
-echo "[$TIMESTAMP] Running session (start: ${SESSION_START_ISO}, deadline: ${SESSION_DEADLINE_ISO}, timeout: ${SESSION_TIMEOUT_SECONDS}s, max_steps: ${MAX_STEPS}, cost_limit: ${COST_LIMIT}, model: ${OPENROUTER_MODEL:-x-ai/grok-4.1-fast})" >> "$LOG_DIR/runner.log"
+echo "[$TIMESTAMP] Running session (start: ${SESSION_START_ISO}, deadline: ${SESSION_DEADLINE_ISO}, timeout: ${SESSION_TIMEOUT_SECONDS}s, max_steps: ${MAX_STEPS}, cost_limit: ${COST_LIMIT}, model: ${OPENROUTER_MODEL:-anthropic/claude-haiku-4.5})" >> "$LOG_DIR/runner.log"
 
 SESSION_EXIT=0
 run_session 2>&1 | tee -a "$SESSION_LOG_FILE" || SESSION_EXIT=$?

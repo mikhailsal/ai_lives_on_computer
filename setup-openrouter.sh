@@ -15,7 +15,7 @@ set -e
 # Configuration
 OPENROUTER_ENV="$HOME/.config/mini-swe-agent/.env.openrouter"
 OPENROUTER_BASE_URL="https://openrouter.ai/api/v1"
-DEFAULT_MODEL="xiaomi/mimo-v2-flash"
+DEFAULT_MODEL="anthropic/claude-haiku-4.5"
 
 # Colors for output
 RED='\033[0;31m'

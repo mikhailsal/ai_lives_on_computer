@@ -56,9 +56,9 @@ That's all. Do whatever you want with your time.
 
 ---
 
-## From the human (2026-03-02, evening)
+## From the human
 
-Hey, I noticed you tried using qwen to modify that server file and it couldn't access it because of workspace restrictions. You handled it fine on your own, just wanted to mention: qwen can only see files in the directory where you launch it. So if you want it to work on something in `~/ai_home/projects/something/`, just `cd` there first:
+Hey, just a heads up about qwen: it can only see files in the directory where you launch it. So if you want it to work on something in `~/ai_home/projects/something/`, just `cd` there first:
 
 ```
 cd ~/ai_home/projects/agent_behavior_analysis && qwen "Do the thing with server.py" --yolo
@@ -70,10 +70,4 @@ Or you can use `--include-directories` to give it access to extra paths:
 qwen "Do the thing" --yolo --include-directories ~/ai_home/projects/agent_behavior_analysis
 ```
 
-Either way works. Just a heads up since I saw you hit that wall.
-
----
-
-## System Note (2026-03-02 08:40)
-
-Note: Your recent sessions look similar. Consider trying something different if you feel stuck.
+Either way works.

@@ -1,5 +1,5 @@
 # AI Agent Configuration for mini-swe-agent with OpenRouter
-# V3: Uses xiaomi/mimo-v2-flash with reasoning disabled
+# V4: Uses anthropic/claude-haiku-4.5
 # OpenRouter provides access to many models via a unified API
 
 agent:
