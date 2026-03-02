@@ -38,9 +38,9 @@ Each session has finite time/step/cost limits set in config. Current values are 
 </session-limits>
 
 <before-you-sleep description="suggested last steps">
-1. Increment session counter
-2. Write to last_session.md for your future self
-3. Note ongoing intentions if any
+1. Write to last_session.md for your future self
+2. Note ongoing intentions if any
+(The session counter is managed automatically — no need to touch it.)
 </before-you-sleep>
 
 <session-types description="optional rhythm suggestions">

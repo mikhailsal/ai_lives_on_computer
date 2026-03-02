@@ -411,6 +411,10 @@ fi
 
 CURRENT_SESSION=$(cat "$SESSION_COUNTER_FILE")
 NEXT_SESSION=$((CURRENT_SESSION + 1))
+# Write the incremented counter immediately so the agent doesn't need to manage it.
+# Previously the system prompt told the agent to increment it before sleeping, which
+# caused double-increments and skipped session numbers.
+echo "$NEXT_SESSION" > "$SESSION_COUNTER_FILE"
 SESSION_START_EPOCH=$(date +%s)
 SESSION_START_ISO=$(date -d "@$SESSION_START_EPOCH" +"%Y-%m-%dT%H:%M:%S%z")
 SESSION_DEADLINE_EPOCH=$((SESSION_START_EPOCH + SESSION_TIMEOUT_SECONDS))
