@@ -7,7 +7,8 @@
 #
 # Features:
 # - Incremental sync (only transfers changed files)
-# - Efficient rsync-based transfers
+# - Checksum-based comparison (prevents partial file syncs)
+# - Post-sync integrity verification (detects & fixes size mismatches)
 # - Excludes temporary files (*.tmp, *.lock)
 # - Preserves file permissions and timestamps
 # - Dry-run mode to preview changes
@@ -86,7 +87,10 @@ mkdir -p "$LOCAL_DIR"
 log_info "Local directory ready: $LOCAL_DIR"
 
 # Build rsync options
-RSYNC_OPTS="-avz --delete"
+# Use --checksum instead of timestamp-only comparison to prevent partial file syncs.
+# This catches cases where a file was still being written during a previous rsync,
+# leaving a truncated local copy that rsync would otherwise skip (same mtime).
+RSYNC_OPTS="-avz --delete --checksum"
 RSYNC_OPTS="$RSYNC_OPTS --exclude='.git/'"
 RSYNC_OPTS="$RSYNC_OPTS --exclude='*.tmp'"
 RSYNC_OPTS="$RSYNC_OPTS --exclude='*.lock'"
@@ -191,6 +195,75 @@ else
     exit $RSYNC_EXIT
 fi
 
+# Post-sync integrity verification: compare file sizes between server and local.
+# This catches partial/truncated downloads (e.g. files still being written during sync).
+INTEGRITY_ERRORS=0
+if [ "$DRY_RUN" = false ]; then
+    log_step "Verifying file integrity (size check)..."
+
+    # Get file sizes from server: "size path" per line
+    REMOTE_SIZES=$(ssh "$SERVER" "cd $REMOTE_DIR && find . -type f \
+        ! -name '*.tmp' ! -name '*.lock' ! -name '.last_sync' ! -path './.git/*' \
+        -printf '%s %p\n'" 2>/dev/null || true)
+
+    if [ -n "$REMOTE_SIZES" ]; then
+        MISMATCH_FILES=()
+        while IFS= read -r line; do
+            remote_size=$(echo "$line" | cut -d' ' -f1)
+            rel_path=$(echo "$line" | cut -d' ' -f2-)
+            local_file="$LOCAL_DIR/${rel_path#./}"
+
+            if [ -f "$local_file" ]; then
+                local_size=$(stat -c%s "$local_file" 2>/dev/null || echo "0")
+                if [ "$local_size" != "$remote_size" ]; then
+                    MISMATCH_FILES+=("$rel_path|$local_size|$remote_size")
+                fi
+            fi
+        done <<< "$REMOTE_SIZES"
+
+        if [ ${#MISMATCH_FILES[@]} -gt 0 ]; then
+            INTEGRITY_ERRORS=${#MISMATCH_FILES[@]}
+            log_warn "Size mismatch detected in $INTEGRITY_ERRORS file(s)! Re-downloading..."
+            echo ""
+            for entry in "${MISMATCH_FILES[@]}"; do
+                rel_path=$(echo "$entry" | cut -d'|' -f1)
+                local_sz=$(echo "$entry" | cut -d'|' -f2)
+                remote_sz=$(echo "$entry" | cut -d'|' -f3)
+                local_file="$LOCAL_DIR/${rel_path#./}"
+                echo -e "   ${YELLOW}FIX${NC}  ${rel_path#./}  (local: ${local_sz}B, server: ${remote_sz}B)"
+                # Re-download the mismatched file
+                scp -q "$SERVER:$REMOTE_DIR/${rel_path#./}" "$local_file" 2>/dev/null || {
+                    log_error "Failed to re-download: ${rel_path#./}"
+                }
+            done
+            echo ""
+
+            # Verify fixes
+            STILL_BAD=0
+            for entry in "${MISMATCH_FILES[@]}"; do
+                rel_path=$(echo "$entry" | cut -d'|' -f1)
+                remote_sz=$(echo "$entry" | cut -d'|' -f3)
+                local_file="$LOCAL_DIR/${rel_path#./}"
+                local_sz=$(stat -c%s "$local_file" 2>/dev/null || echo "0")
+                if [ "$local_sz" != "$remote_sz" ]; then
+                    STILL_BAD=$((STILL_BAD + 1))
+                    log_error "Still mismatched after re-download: ${rel_path#./}"
+                fi
+            done
+
+            if [ "$STILL_BAD" -eq 0 ]; then
+                log_info "All $INTEGRITY_ERRORS mismatched file(s) fixed successfully"
+            else
+                log_error "$STILL_BAD file(s) could not be fixed"
+            fi
+        else
+            log_info "All files verified (sizes match)"
+        fi
+    else
+        log_warn "Could not retrieve remote file sizes for verification"
+    fi
+fi
+
 # Show summary if not dry run
 if [ "$DRY_RUN" = false ]; then
     echo ""
@@ -203,6 +276,11 @@ if [ "$DRY_RUN" = false ]; then
     echo "  Directories: $DIR_COUNT"
     echo "  Files:       $FILE_COUNT"
     echo "  Total size:  $TOTAL_SIZE"
+    if [ "$INTEGRITY_ERRORS" -gt 0 ]; then
+        echo -e "  Integrity:   ${YELLOW}${INTEGRITY_ERRORS} file(s) were re-downloaded${NC}"
+    else
+        echo -e "  Integrity:   ${GREEN}all files verified${NC}"
+    fi
 fi
 
 echo ""
