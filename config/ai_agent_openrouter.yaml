@@ -109,6 +109,12 @@ environment:
     # OpenRouter uses a different .env file
     MSWEA_ENV_FILE: ~/.config/mini-swe-agent/.env.openrouter
 model:
+  # Enable Anthropic prompt caching via cache_control breakpoints.
+  # Marks the last message with cache_control: {"type": "ephemeral"} so
+  # Anthropic caches all preceding tokens (system prompt + conversation history).
+  # Cache writes cost 1.25x but reads cost only 0.1x — huge savings on multi-step sessions.
+  # Minimum cacheable size for Claude Haiku 4.5: 4096 tokens (our prompts exceed this).
+  set_cache_control: default_end
   model_kwargs:
     temperature: 0.5
     drop_params: true
