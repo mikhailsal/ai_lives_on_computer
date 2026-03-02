@@ -152,7 +152,8 @@ check_repetition() {
     fi
     
     # Count how many recent sessions have same hash
-    local repeat_count=$(grep -c "^${current_content}$" "$SIMILARITY_CHECK_FILE" 2>/dev/null || echo "0")
+    local repeat_count
+    repeat_count=$(grep -c "^${current_content}$" "$SIMILARITY_CHECK_FILE" 2>/dev/null) || repeat_count=0
     
     # Add current hash to file (keep last 10)
     echo "$current_content" >> "$SIMILARITY_CHECK_FILE"
