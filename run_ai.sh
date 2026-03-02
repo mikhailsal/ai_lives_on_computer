@@ -350,12 +350,20 @@ run_session() {
     echo "      reasoning:" >> "$tmp_config_file"
     echo "        enabled: false" >> "$tmp_config_file"
     
-    # Add provider routing if specified
+    # Provider routing: prioritize Anthropic for prompt caching support.
+    # Google Vertex AI hosts Claude but does NOT support Anthropic's prompt caching,
+    # so we must route to Anthropic directly for cache_control to work.
+    # allow_fallbacks: true ensures we don't fail if Anthropic is temporarily unavailable.
     if [ -n "$provider" ]; then
         echo "[$TIMESTAMP] Using OpenRouter provider: $provider" >> "$LOG_DIR/runner.log"
         echo "      provider:" >> "$tmp_config_file"
         echo "        order: [\"$provider\"]" >> "$tmp_config_file"
         echo "        allow_fallbacks: false" >> "$tmp_config_file"
+    else
+        # Default: prefer Anthropic for caching, allow fallback to others
+        echo "      provider:" >> "$tmp_config_file"
+        echo "        order: [\"Anthropic\"]" >> "$tmp_config_file"
+        echo "        allow_fallbacks: true" >> "$tmp_config_file"
     fi
     
     config_file="$tmp_config_file"
@@ -363,7 +371,7 @@ run_session() {
     echo "[$TIMESTAMP] Using OpenRouter model: $model (session_id: session_${NEXT_SESSION})" >> "$LOG_DIR/runner.log"
     
     timeout "${SESSION_TIMEOUT_SECONDS}s" mini --config "$config_file" \
-         --model "openai/${model}" \
+         --model "openrouter/${model}" \
          --task "$PROMPT" \
          --yolo \
          --cost-limit "${COST_LIMIT}" \
