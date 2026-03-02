@@ -38,11 +38,15 @@ SESSION_TIMEOUT_SECONDS=$((SESSION_INTERVAL_MINUTES * 2 * 60))  # 30 minutes
 # This prevents runaway sessions from burning API credits
 MAX_STEPS=25
 
+# Session cost guardrail (USD). 0 means unlimited.
+COST_LIMIT=0
+
 # Circuit breaker - detect repetitive sessions
 REPETITION_THRESHOLD=5  # Number of similar sessions before intervention
 SIMILARITY_CHECK_FILE="$STATE_DIR/last_sessions_hash.txt"
 LAST_EXIT_CODE_FILE="$STATE_DIR/last_exit_code.txt"
 CB_INJECTED_FLAG="$STATE_DIR/cb_injected.flag"
+LIMIT_INTERRUPTED_FILE="$STATE_DIR/last_session_interrupted_by_limits.txt"
 
 # File truncation limit for prompt building (lines)
 FILE_TRUNCATE_LINES=200
@@ -55,6 +59,7 @@ fi
 
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 SESSION_COUNTER_FILE="$STATE_DIR/session_counter.txt"
+SESSION_LOG_FILE="$LOG_DIR/session_$TIMESTAMP.log"
 
 #############################################
 # LOCK MANAGEMENT FUNCTIONS
@@ -92,7 +97,7 @@ acquire_lock() {
     echo "$$" > "$LOCK_FILE"
     echo "$current_time" >> "$LOCK_FILE"
     
-    echo "[$TIMESTAMP] Lock acquired (PID: $$, timeout: ${SESSION_TIMEOUT_SECONDS}s, max_steps: ${MAX_STEPS})" >> "$LOG_DIR/runner.log"
+    echo "[$TIMESTAMP] Lock acquired (PID: $$, timeout: ${SESSION_TIMEOUT_SECONDS}s, max_steps: ${MAX_STEPS}, cost_limit: ${COST_LIMIT})" >> "$LOG_DIR/runner.log"
 }
 
 release_lock() {
@@ -224,30 +229,45 @@ truncate_file() {
 }
 
 build_prompt() {
-    echo "=== SYSTEM PROMPT ==="
+    local prev_limit_status="unknown"
+    if [ -f "$LIMIT_INTERRUPTED_FILE" ]; then
+        prev_limit_status=$(cat "$LIMIT_INTERRUPTED_FILE" 2>/dev/null || echo "unknown")
+    fi
+
+    echo "<prompt>"
+    echo "<system-prompt>"
     cat "$SYSTEM_PROMPT_FILE"
+    echo "</system-prompt>"
     echo ""
-    echo "=== SESSION INFO ==="
-    echo "Session Number: $NEXT_SESSION"
+    echo "<session-info>"
+    echo "  <session-number>$NEXT_SESSION</session-number>"
+    echo "  <session-start-time iso=\"$SESSION_START_ISO\" epoch=\"$SESSION_START_EPOCH\" />"
+    echo "  <session-deadline-time iso=\"$SESSION_DEADLINE_ISO\" epoch=\"$SESSION_DEADLINE_EPOCH\" />"
+    echo "  <session-limits timeout_seconds=\"$SESSION_TIMEOUT_SECONDS\" max_steps=\"$MAX_STEPS\" cost_limit_usd=\"$COST_LIMIT\" />"
+    echo "  <previous-session interrupted_by_limits=\"$prev_limit_status\" />"
+    echo "</session-info>"
     echo ""
-    echo "=== YOUR CURRENT STATE ==="
-    echo ""
-    echo "--- last_session.md ---"
+    echo "<current-state>"
+    echo "<last-session-md>"
     truncate_file "$AI_HOME/state/last_session.md" "$FILE_TRUNCATE_LINES"
+    echo "</last-session-md>"
     echo ""
-    echo "--- current_plan.md ---"
+    echo "<current-plan-md>"
     truncate_file "$AI_HOME/state/current_plan.md" "$FILE_TRUNCATE_LINES"
+    echo "</current-plan-md>"
+    echo "</current-state>"
     echo ""
-    echo "=== OTHER FILES AVAILABLE (read them if you need them) ==="
-    echo "- ~/ai_home/logs/history.md"
-    echo "- ~/ai_home/logs/consolidated_history.md"
-    echo "- ~/ai_home/knowledge/ (directory)"
-    echo "- ~/ai_home/projects/ (directory)"
-    echo "- ~/ai_home/tools/ (directory)"
-    echo "- ~/ai_home/state/external_messages.md"
+    echo "<available-files>"
+    echo "  <file>~/ai_home/logs/history.md</file>"
+    echo "  <file>~/ai_home/logs/consolidated_history.md</file>"
+    echo "  <dir>~/ai_home/knowledge/</dir>"
+    echo "  <dir>~/ai_home/projects/</dir>"
+    echo "  <dir>~/ai_home/tools/</dir>"
+    echo "  <file>~/ai_home/state/external_messages.md</file>"
+    echo "</available-files>"
     echo ""
-    echo "=== BEGIN ==="
-    echo "You are now awake. This is session #$NEXT_SESSION."
+    echo "<begin>You are now awake. This is session #$NEXT_SESSION.</begin>"
+    echo "</prompt>"
 }
 
 #############################################
@@ -303,6 +323,18 @@ run_session() {
     tmp_config_file="config/ai_agent_openrouter_tmp_$$.yaml"
     cp "$config_file" "$tmp_config_file"
     
+    # Keep YAML runtime limits synced with config.sh values
+    if grep -q '^  step_limit:' "$tmp_config_file"; then
+        sed -i "s/^  step_limit:.*/  step_limit: ${MAX_STEPS}/" "$tmp_config_file"
+    else
+        sed -i "/^agent:/a\\  step_limit: ${MAX_STEPS}" "$tmp_config_file"
+    fi
+    if grep -q '^  cost_limit:' "$tmp_config_file"; then
+        sed -i "s/^  cost_limit:.*/  cost_limit: ${COST_LIMIT}/" "$tmp_config_file"
+    else
+        sed -i "/^  step_limit:/a\\  cost_limit: ${COST_LIMIT}" "$tmp_config_file"
+    fi
+
     # Start extra_body block
     echo "    extra_body:" >> "$tmp_config_file"
     
@@ -334,7 +366,7 @@ run_session() {
          --model "openai/${model}" \
          --task "$PROMPT" \
          --yolo \
-         --cost-limit 0 \
+         --cost-limit "${COST_LIMIT}" \
          --exit-immediately \
          2>&1 || {
         local exit_code=$?
@@ -370,6 +402,10 @@ fi
 
 CURRENT_SESSION=$(cat "$SESSION_COUNTER_FILE")
 NEXT_SESSION=$((CURRENT_SESSION + 1))
+SESSION_START_EPOCH=$(date +%s)
+SESSION_START_ISO=$(date -d "@$SESSION_START_EPOCH" +"%Y-%m-%dT%H:%M:%S%z")
+SESSION_DEADLINE_EPOCH=$((SESSION_START_EPOCH + SESSION_TIMEOUT_SECONDS))
+SESSION_DEADLINE_ISO=$(date -d "@$SESSION_DEADLINE_EPOCH" +"%Y-%m-%dT%H:%M:%S%z")
 
 echo "[$TIMESTAMP] Starting AI session #$NEXT_SESSION..." >> "$LOG_DIR/runner.log"
 
@@ -386,14 +422,22 @@ fi
 # EXECUTION
 #############################################
 
-echo "[$TIMESTAMP] Running session (timeout: ${SESSION_TIMEOUT_SECONDS}s, model: ${OPENROUTER_MODEL:-x-ai/grok-4.1-fast})" >> "$LOG_DIR/runner.log"
+echo "[$TIMESTAMP] Running session (start: ${SESSION_START_ISO}, deadline: ${SESSION_DEADLINE_ISO}, timeout: ${SESSION_TIMEOUT_SECONDS}s, max_steps: ${MAX_STEPS}, cost_limit: ${COST_LIMIT}, model: ${OPENROUTER_MODEL:-x-ai/grok-4.1-fast})" >> "$LOG_DIR/runner.log"
 
 SESSION_EXIT=0
-run_session 2>&1 | tee -a "$LOG_DIR/session_$TIMESTAMP.log" || SESSION_EXIT=$?
+run_session 2>&1 | tee -a "$SESSION_LOG_FILE" || SESSION_EXIT=$?
 
 # Save session exit code for circuit breaker false-positive protection
 echo "$SESSION_EXIT" > "$LAST_EXIT_CODE_FILE"
 SESSION_EXIT_SAVED=true
+
+# Persist whether this session was interrupted by limits for the next wake-up prompt.
+if [ -f "$SESSION_LOG_FILE" ] && grep -q "Limits exceeded\." "$SESSION_LOG_FILE"; then
+    echo "yes" > "$LIMIT_INTERRUPTED_FILE"
+    echo "[$TIMESTAMP] Session #$NEXT_SESSION hit limits" >> "$LOG_DIR/runner.log"
+else
+    echo "no" > "$LIMIT_INTERRUPTED_FILE"
+fi
 
 if [ "$SESSION_EXIT" -ne 0 ]; then
     echo "[$TIMESTAMP] Session #$NEXT_SESSION failed (exit code: $SESSION_EXIT)" >> "$LOG_DIR/runner.log"
