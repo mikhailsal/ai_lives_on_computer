@@ -170,10 +170,14 @@ log_step "Deploying files..."
 scp -q "$SCRIPT_DIR/config/ai_agent_openrouter.yaml" "$SERVER:~/live-swe-agent/config/ai_agent_openrouter.yaml"
 log_info "ai_agent_openrouter.yaml"
 
-# Setup script
+# Setup scripts
 scp -q "$SCRIPT_DIR/setup-openrouter.sh" "$SERVER:~/setup-openrouter.sh"
 ssh "$SERVER" "chmod +x ~/setup-openrouter.sh"
 log_info "setup-openrouter.sh"
+
+scp -q "$SCRIPT_DIR/set-schedule.sh" "$SERVER:~/set-schedule.sh"
+ssh "$SERVER" "chmod +x ~/set-schedule.sh"
+log_info "set-schedule.sh"
 
 # === AGENT-MODIFIABLE FILES (only deploy if --force or file doesn't exist) ===
 
@@ -288,4 +292,4 @@ log_info "Deployment complete!"
 echo ""
 echo "Next steps:"
 echo "  1. Ensure OpenRouter is configured: ssh $SERVER '~/setup-openrouter.sh'"
-echo "  2. Set up cron: */15 * * * * ~/run_ai.sh >> ~/ai_home/logs/cron.log 2>&1"
+echo "  2. Set up schedule: ./set-schedule.sh 15   (wake up every 15 minutes)"

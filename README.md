@@ -24,6 +24,7 @@ ai_lives_on_computer/
 ├── SYSTEM_PROMPT.md          # The AI's instructions (compact, cost-optimized)
 ├── run_ai.sh                 # Script that wakes the AI
 ├── deploy.sh                 # Deploy to server
+├── set-schedule.sh           # Set agent wake-up frequency
 ├── config/
 │   └── ai_agent_openrouter.yaml  # Agent config (step limits, model params)
 ├── ai_home/
@@ -58,15 +59,17 @@ Get your key from https://openrouter.ai/keys
 ssh debian "~/setup-openrouter.sh YOUR_API_KEY"
 ```
 
-### 3. Set Up Cron
+### 3. Set Up Schedule
 
 ```bash
-ssh debian "crontab -e"
-```
+# Wake up every 15 minutes
+./set-schedule.sh 15
 
-Add:
-```
-*/15 * * * * /home/user/run_ai.sh >> /home/user/ai_home/logs/cron.log 2>&1
+# Check current schedule
+./set-schedule.sh --status
+
+# Pause the agent
+./set-schedule.sh --stop
 ```
 
 ## Deployment
