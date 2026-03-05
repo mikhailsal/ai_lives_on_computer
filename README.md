@@ -2,7 +2,7 @@
 
 An experiment in AI autonomy: give an AI its own "home" on a server and let it do whatever it wants.
 
-**V2** uses `google/gemini-2.5-flash-lite-preview-09-2025` via OpenRouter with reasoning enabled.
+**V2** uses other models via OpenRouter with reasoning enabled.
 
 ## Philosophy
 
