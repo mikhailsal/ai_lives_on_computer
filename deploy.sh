@@ -35,9 +35,11 @@ log_skip() { echo -e "${BLUE}[->]${NC} $1 (skipped - agent may have modified)"; 
 FORCE_MODE=false
 RESET_STATE=false
 STATUS_ONLY=false
+NEW_MODEL=""
+NEW_REASONING=""
 
-for arg in "$@"; do
-    case $arg in
+while [[ $# -gt 0 ]]; do
+    case $1 in
         --force)
             FORCE_MODE=true
             ;;
@@ -48,6 +50,22 @@ for arg in "$@"; do
         --status)
             STATUS_ONLY=true
             ;;
+        --model)
+            shift
+            NEW_MODEL="$1"
+            if [ -z "$NEW_MODEL" ]; then
+                log_error "--model requires a model name (e.g. --model 'stepfun/step-3.5-flash:free')"
+                exit 1
+            fi
+            ;;
+        --reasoning)
+            shift
+            NEW_REASONING="$1"
+            if [ -z "$NEW_REASONING" ]; then
+                log_error "--reasoning requires a value (low, medium, high, or 'off' to remove)"
+                exit 1
+            fi
+            ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -56,6 +74,8 @@ for arg in "$@"; do
             echo "  --status        Show server status without deploying anything"
             echo "  --force         Force overwrite ALL files (DANGER: destroys agent edits!)"
             echo "  --reset         Full reset - fresh start from session 1 (DANGER!)"
+            echo "  --model NAME    Set the OpenRouter model (updates config.sh and yaml comment)"
+            echo "  --reasoning LVL Set reasoning_effort in yaml (low/medium/high, or 'off' to remove)"
             echo "  --help          Show this help"
             echo ""
             echo "Files the agent can modify (protected by default):"
@@ -69,7 +89,39 @@ for arg in "$@"; do
             exit 0
             ;;
     esac
+    shift
 done
+
+# Apply --model if specified: update local config files before deploying
+if [ -n "$NEW_MODEL" ]; then
+    log_step "Setting model to: $NEW_MODEL"
+    
+    # Update ai_home/config.sh
+    if [ -f "$SCRIPT_DIR/ai_home/config.sh" ]; then
+        sed -i "s|^OPENROUTER_MODEL=.*|OPENROUTER_MODEL=\"$NEW_MODEL\"|" "$SCRIPT_DIR/ai_home/config.sh"
+        log_info "Updated ai_home/config.sh"
+    fi
+    
+    # Update yaml comment
+    if [ -f "$SCRIPT_DIR/config/ai_agent_openrouter.yaml" ]; then
+        sed -i "s|^# V[0-9]*: Uses .*|# V4: Uses $NEW_MODEL|" "$SCRIPT_DIR/config/ai_agent_openrouter.yaml"
+        log_info "Updated ai_agent_openrouter.yaml comment"
+    fi
+fi
+
+# Apply --reasoning if specified: update config.sh REASONING_EFFORT
+if [ -n "$NEW_REASONING" ]; then
+    CONFIG_SH="$SCRIPT_DIR/ai_home/config.sh"
+    if [ -f "$CONFIG_SH" ]; then
+        if grep -q '^REASONING_EFFORT=' "$CONFIG_SH"; then
+            sed -i "s|^REASONING_EFFORT=.*|REASONING_EFFORT=\"$NEW_REASONING\"|" "$CONFIG_SH"
+        else
+            echo "" >> "$CONFIG_SH"
+            echo "REASONING_EFFORT=\"$NEW_REASONING\"" >> "$CONFIG_SH"
+        fi
+        log_info "Set REASONING_EFFORT=$NEW_REASONING in config.sh"
+    fi
+fi
 
 echo "========================================"
 echo "   AI Agent Deployment Script - V2"
@@ -240,22 +292,66 @@ if [ "$RESET_STATE" = true ]; then
     ssh -n "$SERVER" "pkill -f '[m]ini --config' 2>/dev/null || true; rm -f ~/ai_home/state/session.lock"
     log_info "Stopped running sessions"
     
-    # Reset all state
+    # Reset all state, logs, and agent-created content
     ssh -n "$SERVER" "
+        # State files - reset to clean defaults
         echo '0' > ~/ai_home/state/session_counter.txt
         echo '(no previous session)' > ~/ai_home/state/last_session.md
         echo '(no plan yet)' > ~/ai_home/state/current_plan.md
-        echo '# AI History Log' > ~/ai_home/logs/history.md
-        echo '# Consolidated History' > ~/ai_home/logs/consolidated_history.md
         rm -f ~/ai_home/state/external_messages.md
         rm -f ~/ai_home/state/last_sessions_hash.txt
         rm -f ~/ai_home/state/last_exit_code.txt
         rm -f ~/ai_home/state/cb_injected.flag
+        rm -f ~/ai_home/state/last_session_interrupted_by_limits.txt
+        rm -f ~/ai_home/state/session.lock
+        
+        # State subdirectories
+        rm -rf ~/ai_home/state/session_archives/*
+        rm -rf ~/ai_home/state/visualization/*
+        
+        # Logs - wipe everything and recreate clean files
+        rm -rf ~/ai_home/logs/*
+        echo '# AI History Log' > ~/ai_home/logs/history.md
+        echo '# Consolidated History' > ~/ai_home/logs/consolidated_history.md
+        
+        # Agent-created content
         rm -rf ~/ai_home/knowledge/*
         rm -rf ~/ai_home/projects/*
         rm -rf ~/ai_home/tools/*
+        
+        # Old backups
+        rm -f ~/ai_home/*.backup.*
+        rm -f ~/run_ai.sh.backup.*
+        
+        # Agent-created scripts/files in ~/ai_home/ root (NOT subdirs, NOT core files)
+        # Core files (SYSTEM_PROMPT.md, config.sh) are handled by --force deploy above
+        find ~/ai_home -maxdepth 1 -type f \
+            ! -name 'SYSTEM_PROMPT.md' \
+            ! -name 'config.sh' \
+            -delete 2>/dev/null || true
+
+        # Agent-created files scattered in live-swe-agent/
+        # Remove known patterns + any leftover temp configs from aborted sessions
+        rm -f ~/live-swe-agent/hello.py ~/live-swe-agent/test.py
+        rm -f ~/live-swe-agent/test_weather.sh ~/live-swe-agent/weather_moscow.sh
+        rm -f ~/live-swe-agent/story_seeds_*.json
+        rm -f ~/live-swe-agent/config/ai_agent_openrouter_tmp_*.yaml
+        # Remove any other .py .sh .json .txt .md files the agent may have dropped here
+        find ~/live-swe-agent -maxdepth 1 -type f \
+            \( -name '*.py' -o -name '*.sh' -o -name '*.json' -o -name '*.txt' -o -name '*.md' \) \
+            -delete 2>/dev/null || true
+
+        # Old mini-swe-agent history and trajectory (could influence new agent)
+        rm -f ~/.config/mini-swe-agent/interactive_history.txt
+        rm -f ~/.config/mini-swe-agent/.env.backup
+        rm -f ~/.config/mini-swe-agent/last_mini_run.traj.json
+        # Also wipe any other traj/history files (json, txt) that may have accumulated
+        find ~/.config/mini-swe-agent -maxdepth 1 -type f \
+            \( -name '*.json' -o -name '*.txt' \) \
+            ! -name '.env*' \
+            -delete 2>/dev/null || true
     "
-    log_info "State reset to session 0"
+    log_info "State reset to session 0 (logs, archives, backups, artifacts cleaned)"
 else
     # Just ensure state files exist (don't overwrite)
     log_step "Ensuring state files exist..."

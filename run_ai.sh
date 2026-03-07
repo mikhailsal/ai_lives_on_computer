@@ -122,6 +122,42 @@ cleanup() {
 }
 
 #############################################
+# MODEL SLUG - Short readable name from model
+#############################################
+
+# Extract a short slug from the model name for session tagging.
+# Rules:
+#   1. Strip provider prefix (e.g. "stepfun/")
+#   2. Strip variant suffix (e.g. ":free", ":nitro", ":beta")
+#   3. Strip "claude-" only when followed by a letter — keeps "claude-3-5-sonnet"
+#      readable while turning "claude-haiku-4.5" into "haiku-4.5"
+#   4. Remove model-size tokens (e.g. 72b, 27b, 9b, 1.5b)
+#   5. Remove long date-like timestamps (8+ digits, e.g. 20241022)
+#   6. Clean up leftover consecutive/trailing dashes
+# Examples:
+#   stepfun/step-3.5-flash:free         → step-3.5-flash
+#   anthropic/claude-haiku-4.5          → haiku-4.5
+#   anthropic/claude-3-5-sonnet-2024... → claude-3-5-sonnet
+#   google/gemini-2.0-flash-lite        → gemini-2.0-flash-lite
+#   qwen/qwen-2.5-72b-instruct:free     → qwen-2.5-instruct
+#   google/gemma-3-27b-it:free          → gemma-3-it
+#   deepseek/deepseek-r1:free           → deepseek-r1
+get_model_slug() {
+    local model="$1"
+    local name="${model##*/}"   # Strip provider prefix (e.g. "stepfun/")
+    name="${name%%:*}"          # Strip variant suffix (e.g. ":free", ":nitro")
+    # Strip "claude-" only when followed by a letter (keep "claude-3-5-sonnet")
+    name=$(echo "$name" | sed 's/^claude-\([a-zA-Z]\)/\1/')
+    # Remove model-size tokens: -72b- -27b- -9b- -1.5b- etc.
+    name=$(echo "$name" | sed -E 's/(^|-)([0-9]+(\.[0-9]+)?[bBmMkK][bB]?)([-]|$)/\1\4/g')
+    # Remove long date-like timestamps (8+ digit sequences, e.g. 20241022)
+    name=$(echo "$name" | sed -E 's/(^|-)([0-9]{8,})([-]|$)/\1\3/g')
+    # Clean up consecutive or trailing/leading dashes
+    name=$(echo "$name" | sed -E 's/-+/-/g; s/^-//; s/-$//')
+    echo "$name"
+}
+
+#############################################
 # CIRCUIT BREAKER - Detect Repetitive Sessions
 # Protected against false positives from API errors
 #############################################
@@ -340,28 +376,36 @@ run_session() {
     echo "    extra_body:" >> "$tmp_config_file"
     
     # Session ID for Langfuse grouping via OpenRouter Broadcast
-    echo "      session_id: \"session_${NEXT_SESSION}\"" >> "$tmp_config_file"
+    echo "      session_id: \"${MODEL_SLUG}_session_${NEXT_SESSION}\"" >> "$tmp_config_file"
     
     # Trace metadata for richer Langfuse analytics
     echo "      trace:" >> "$tmp_config_file"
-    echo "        trace_name: \"AI Agent Session ${NEXT_SESSION}\"" >> "$tmp_config_file"
+    echo "        trace_name: \"AI Agent Session ${MODEL_SLUG} ${NEXT_SESSION}\"" >> "$tmp_config_file"
     echo "        generation_name: \"step\"" >> "$tmp_config_file"
     
-    # Disable reasoning (prevents overthinking and wasted tokens)
-    echo "      reasoning:" >> "$tmp_config_file"
-    echo "        enabled: false" >> "$tmp_config_file"
+    # Reasoning configuration
+    # REASONING_EFFORT controls reasoning for models that support it.
+    # Values: "off" (disable), "low", "medium", "high" (enable with effort level)
+    # Reasoning models (e.g. stepfun/step-3.5-flash) REQUIRE reasoning enabled.
+    local reasoning_effort="${REASONING_EFFORT:-off}"
+    if [ "$reasoning_effort" = "off" ]; then
+        echo "      reasoning:" >> "$tmp_config_file"
+        echo "        enabled: false" >> "$tmp_config_file"
+    else
+        echo "      reasoning:" >> "$tmp_config_file"
+        echo "        effort: \"$reasoning_effort\"" >> "$tmp_config_file"
+    fi
     
-    # Provider routing: prioritize Anthropic for prompt caching support.
-    # Google Vertex AI hosts Claude but does NOT support Anthropic's prompt caching,
-    # so we must route to Anthropic directly for cache_control to work.
-    # allow_fallbacks: true ensures we don't fail if Anthropic is temporarily unavailable.
+    # Provider routing: control which backend OpenRouter uses.
+    # Set OPENROUTER_PROVIDER in config.sh or .env.openrouter to override.
+    # Default provider depends on model (Anthropic for Claude, none for others).
     if [ -n "$provider" ]; then
         echo "[$TIMESTAMP] Using OpenRouter provider: $provider" >> "$LOG_DIR/runner.log"
         echo "      provider:" >> "$tmp_config_file"
         echo "        order: [\"$provider\"]" >> "$tmp_config_file"
         echo "        allow_fallbacks: false" >> "$tmp_config_file"
-    else
-        # Default: prefer Anthropic for caching, allow fallback to others
+    elif [[ "$model" == anthropic/* ]]; then
+        # Anthropic models: prefer Anthropic directly for prompt caching support
         echo "      provider:" >> "$tmp_config_file"
         echo "        order: [\"Anthropic\"]" >> "$tmp_config_file"
         echo "        allow_fallbacks: true" >> "$tmp_config_file"
@@ -369,7 +413,7 @@ run_session() {
     
     config_file="$tmp_config_file"
     
-    echo "[$TIMESTAMP] Using OpenRouter model: $model (session_id: session_${NEXT_SESSION})" >> "$LOG_DIR/runner.log"
+    echo "[$TIMESTAMP] Using OpenRouter model: $model (session_id: ${MODEL_SLUG}_session_${NEXT_SESSION})" >> "$LOG_DIR/runner.log"
     
     timeout "${SESSION_TIMEOUT_SECONDS}s" mini --config "$config_file" \
          --model "openrouter/${model}" \
@@ -415,12 +459,13 @@ NEXT_SESSION=$((CURRENT_SESSION + 1))
 # Previously the system prompt told the agent to increment it before sleeping, which
 # caused double-increments and skipped session numbers.
 echo "$NEXT_SESSION" > "$SESSION_COUNTER_FILE"
+MODEL_SLUG=$(get_model_slug "${OPENROUTER_MODEL:-anthropic/claude-haiku-4.5}")
 SESSION_START_EPOCH=$(date +%s)
 SESSION_START_ISO=$(date -d "@$SESSION_START_EPOCH" +"%Y-%m-%dT%H:%M:%S%z")
 SESSION_DEADLINE_EPOCH=$((SESSION_START_EPOCH + SESSION_TIMEOUT_SECONDS))
 SESSION_DEADLINE_ISO=$(date -d "@$SESSION_DEADLINE_EPOCH" +"%Y-%m-%dT%H:%M:%S%z")
 
-echo "[$TIMESTAMP] Starting AI session #$NEXT_SESSION..." >> "$LOG_DIR/runner.log"
+echo "[$TIMESTAMP] Starting AI session #$NEXT_SESSION [$MODEL_SLUG]..." >> "$LOG_DIR/runner.log"
 
 # Check for repetitive behavior and inject nudge if needed
 # Protected: skips check if previous session ended with error
@@ -447,13 +492,13 @@ SESSION_EXIT_SAVED=true
 # Persist whether this session was interrupted by limits for the next wake-up prompt.
 if [ -f "$SESSION_LOG_FILE" ] && grep -q "Limits exceeded\." "$SESSION_LOG_FILE"; then
     echo "yes" > "$LIMIT_INTERRUPTED_FILE"
-    echo "[$TIMESTAMP] Session #$NEXT_SESSION hit limits" >> "$LOG_DIR/runner.log"
+    echo "[$TIMESTAMP] Session #$NEXT_SESSION [$MODEL_SLUG] hit limits" >> "$LOG_DIR/runner.log"
 else
     echo "no" > "$LIMIT_INTERRUPTED_FILE"
 fi
 
 if [ "$SESSION_EXIT" -ne 0 ]; then
-    echo "[$TIMESTAMP] Session #$NEXT_SESSION failed (exit code: $SESSION_EXIT)" >> "$LOG_DIR/runner.log"
+    echo "[$TIMESTAMP] Session #$NEXT_SESSION [$MODEL_SLUG] failed (exit code: $SESSION_EXIT)" >> "$LOG_DIR/runner.log"
 else
-    echo "[$TIMESTAMP] Session #$NEXT_SESSION complete" >> "$LOG_DIR/runner.log"
+    echo "[$TIMESTAMP] Session #$NEXT_SESSION [$MODEL_SLUG] complete" >> "$LOG_DIR/runner.log"
 fi

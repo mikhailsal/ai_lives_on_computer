@@ -13,4 +13,9 @@ SESSION_INTERVAL_MINUTES=15
 SESSION_TIMEOUT_SECONDS=1800  # 30 minutes
 
 # OpenRouter model
-OPENROUTER_MODEL="anthropic/claude-haiku-4.5"
+OPENROUTER_MODEL="stepfun/step-3.5-flash:free"
+
+# Reasoning effort for models that support/require it
+# Values: "off" (disable), "low", "medium", "high"
+# Reasoning models (e.g. stepfun/step-3.5-flash) require this to be non-off
+REASONING_EFFORT="medium"

@@ -1,5 +1,5 @@
 # AI Agent Configuration for mini-swe-agent with OpenRouter
-# V4: Uses anthropic/claude-haiku-4.5
+# V4: Uses stepfun/step-3.5-flash:free
 # OpenRouter provides access to many models via a unified API
 
 agent:
