@@ -23,6 +23,7 @@ The AI wakes up periodically (via cron), exists for a while, then sleeps. When i
 ai_lives_on_computer/
 ├── SYSTEM_PROMPT.md          # The AI's instructions (compact, cost-optimized)
 ├── run_ai.sh                 # Script that wakes the AI
+├── run_ai_watchdog.sh        # Watchdog wrapper (auto-rollback on repeated failures)
 ├── deploy.sh                 # Deploy to server
 ├── set-schedule.sh           # Set agent wake-up frequency
 ├── config/
@@ -137,6 +138,7 @@ V2 is designed for paid models. Key optimizations:
 
 ## Safety Features
 
+- **Watchdog** (`run_ai_watchdog.sh`) - Cron calls the watchdog, not `run_ai.sh` directly. If `run_ai.sh` fails 3 times in a row, the watchdog automatically rolls back to the last known-good "golden" backup. On every success, it saves the current `run_ai.sh` as the new golden backup. Includes a `bash -n` syntax pre-check.
 - **Step limit (25)** - Sessions end after 25 actions
 - **Time limit (30min)** - Sessions killed if too long
 - **Lock file** - Prevents concurrent sessions

@@ -82,6 +82,7 @@ while [[ $# -gt 0 ]]; do
             echo "  ~/ai_home/SYSTEM_PROMPT.md  - Agent's self-modifiable instructions"
             echo "  ~/ai_home/config.sh         - Agent's configuration"
             echo "  ~/run_ai.sh                 - Runner script (agent could modify)"
+            echo "  ~/run_ai_watchdog.sh         - Watchdog wrapper (auto-rollback protection)"
             echo ""
             echo "Files always safe to update:"
             echo "  ~/live-swe-agent/config/*.yaml  - mini-swe-agent configs"
@@ -230,6 +231,11 @@ log_info "setup-openrouter.sh"
 scp -q "$SCRIPT_DIR/set-schedule.sh" "$SERVER:~/set-schedule.sh"
 ssh -n "$SERVER" "chmod +x ~/set-schedule.sh"
 log_info "set-schedule.sh"
+
+# Watchdog wrapper (cron calls this instead of run_ai.sh directly)
+scp -q "$SCRIPT_DIR/run_ai_watchdog.sh" "$SERVER:~/run_ai_watchdog.sh"
+ssh -n "$SERVER" "chmod +x ~/run_ai_watchdog.sh"
+log_info "run_ai_watchdog.sh"
 
 # === AGENT-MODIFIABLE FILES (only deploy if --force or file doesn't exist) ===
 

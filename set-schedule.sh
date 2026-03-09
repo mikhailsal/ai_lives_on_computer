@@ -74,7 +74,7 @@ show_status() {
 
     log_step "Current Schedule"
 
-    CRON_LINE=$(ssh "$SERVER" "crontab -l 2>/dev/null | grep 'run_ai\.sh' || true")
+    CRON_LINE=$(ssh "$SERVER" "crontab -l 2>/dev/null | grep 'run_ai' || true")
     CONFIG_INTERVAL=$(ssh "$SERVER" "grep '^SESSION_INTERVAL_MINUTES=' ~/ai_home/config.sh 2>/dev/null | cut -d'=' -f2 || echo 'not set'")
     CONFIG_TIMEOUT=$(ssh "$SERVER" "grep '^SESSION_TIMEOUT_SECONDS=' ~/ai_home/config.sh 2>/dev/null | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' ' || echo 'not set'")
     CONFIG_STEPS=$(ssh "$SERVER" "grep '^MAX_STEPS=' ~/ai_home/config.sh 2>/dev/null | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' ' || echo 'not set'")
@@ -116,11 +116,11 @@ stop_schedule() {
 
     log_step "Removing AI agent cron job..."
 
-    # Remove any line containing run_ai.sh from crontab
-    ssh "$SERVER" "crontab -l 2>/dev/null | grep -v 'run_ai\.sh' | crontab - 2>/dev/null || true"
+    # Remove any line containing run_ai from crontab
+    ssh "$SERVER" "crontab -l 2>/dev/null | grep -v 'run_ai' | crontab - 2>/dev/null || true"
 
     # Verify
-    REMAINING=$(ssh "$SERVER" "crontab -l 2>/dev/null | grep 'run_ai\.sh' || true")
+    REMAINING=$(ssh "$SERVER" "crontab -l 2>/dev/null | grep 'run_ai' || true")
     if [ -z "$REMAINING" ]; then
         log_info "Cron job removed. Agent will no longer wake up automatically."
     else
@@ -201,7 +201,7 @@ set_schedule() {
         cron_expr="*/${minutes} * * * *"
     fi
 
-    local cron_line="${cron_expr} ~/run_ai.sh >> ~/ai_home/logs/cron.log 2>&1"
+    local cron_line="${cron_expr} ~/run_ai_watchdog.sh >> ~/ai_home/logs/cron.log 2>&1"
 
     # If timeout is omitted, preserve existing value; otherwise compute fallback.
     if [ -z "$timeout_seconds" ]; then
@@ -266,9 +266,9 @@ set_schedule() {
     # Step 1: Update crontab
     log_step "Updating cron job..."
 
-    # Remove old run_ai.sh entries and add the new one
+    # Remove old run_ai entries and add the new one
     ssh "$SERVER" "
-        (crontab -l 2>/dev/null | grep -v 'run_ai\.sh'; echo '${cron_line}') | crontab -
+        (crontab -l 2>/dev/null | grep -v 'run_ai'; echo '${cron_line}') | crontab -
     "
     log_info "Cron job installed: ${cron_expr}"
 
@@ -330,7 +330,7 @@ set_schedule() {
     # Step 4: Verify
     log_step "Verifying..."
 
-    INSTALLED=$(ssh "$SERVER" "crontab -l 2>/dev/null | grep 'run_ai\.sh' || true")
+    INSTALLED=$(ssh "$SERVER" "crontab -l 2>/dev/null | grep 'run_ai' || true")
     if [ -n "$INSTALLED" ]; then
         log_info "Schedule is active!"
         echo ""
